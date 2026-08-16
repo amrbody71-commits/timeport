@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Timeport — stand somewhere that no longer exists</title>
+<style>
+  :root{
+    --ink:#0A0A0B;
+    --panel:rgba(10,10,11,.82);
+    --hair:rgba(255,255,255,.14);
+    --text:#EDEAE4;
+    --dim:rgba(237,234,228,.52);
+    --accent:#E8E0CC;              /* overwritten per era */
+    --serif:'Iowan Old Style',Georgia,'Times New Roman',serif;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:var(--text);
+    font-family:var(--mono);-webkit-font-smoothing:antialiased;
+    -webkit-tap-highlight-color:transparent}
+  canvas{position:fixed;inset:0;display:block;width:100%;height:100%;
+    cursor:grab;touch-action:none}
+  canvas.dragging{cursor:grabbing}
+
+  .chrome{position:fixed;inset:0;pointer-events:none;z-index:2}
+  .chrome > *{pointer-events:auto}
+
+  /* ---------- place plate ---------- */
+  .plate{position:absolute;top:22px;left:24px;padding:11px 17px 12px;
+    background:var(--panel);border:1px solid var(--hair);border-radius:2px;
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    display:flex;align-items:baseline;gap:12px;
+    transition:opacity .5s ease}
+  .plate .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);
+    align-self:center;box-shadow:0 0 10px var(--accent);transition:background .6s,box-shadow .6s}
+  .plate .name{font-family:var(--serif);font-style:italic;font-size:19px;letter-spacing:.2px}
+  .plate .year{font-size:10.5px;letter-spacing:2.4px;color:var(--dim)}
+  .plate .where{font-size:9.5px;letter-spacing:1.6px;color:var(--dim);
+    text-transform:uppercase;border-left:1px solid var(--hair);padding-left:12px}
+
+  /* ---------- compass ---------- */
+  .compass{position:absolute;left:24px;bottom:26px;padding:9px 13px;
+    background:var(--panel);border:1px solid var(--hair);border-radius:2px;
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    font-size:11px;letter-spacing:2px;display:flex;gap:9px;align-items:center}
+  .compass b{color:var(--accent);font-weight:600;transition:color .6s}
+  .compass .deg{color:var(--dim);font-variant-numeric:tabular-nums}
+
+  /* ---------- era bar ---------- */
+  .erabar{position:absolute;left:50%;transform:translateX(-50%);bottom:26px;
+    display:flex;gap:3px;padding:3px;background:var(--panel);
+    border:1px solid var(--hair);border-radius:3px;
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);max-width:calc(100vw - 48px)}
+  .erabar button{appearance:none;background:none;border:0;color:var(--dim);
+    font-family:var(--mono);font-size:10.5px;letter-spacing:1.9px;text-transform:uppercase;
+    padding:10px 17px;border-radius:2px;cursor:pointer;white-space:nowrap;
+    transition:color .25s,background .25s}
+  .erabar button:hover{color:var(--text);background:rgba(255,255,255,.05)}
+  .erabar button[aria-current="true"]{color:var(--ink);background:var(--accent)}
+  .erabar button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .erabar .yr{font-variant-numeric:tabular-nums}
+  .erabar .pl{opacity:.62;margin-left:7px}
+
+  /* ---------- hint ---------- */
+  .hint{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;
+    font-size:8.5px;letter-spacing:2.6px;color:rgba(237,234,228,.3);
+    text-transform:uppercase;pointer-events:none;white-space:nowrap}
+
+  /* ---------- loader ---------- */
+  .loader{position:fixed;inset:0;z-index:5;background:var(--ink);
+    display:grid;place-content:center;gap:14px;text-align:center;
+    transition:opacity .7s ease}
+  .loader.gone{opacity:0;pointer-events:none}
+  .loader .t{font-family:var(--serif);font-style:italic;font-size:21px}
+  .loader .s{font-size:9.5px;letter-spacing:3px;color:var(--dim);text-transform:uppercase}
+  .loader .bar{width:190px;height:1px;background:var(--hair);margin:4px auto 0;overflow:hidden}
+  .loader .bar i{display:block;height:100%;width:0;background:var(--accent);
+    transition:width .4s ease}
+
+  .err{position:fixed;inset:0;z-index:6;display:none;place-content:center;
+    padding:32px;text-align:center;background:var(--ink);font-size:12px;line-height:1.7}
+  .err code{color:var(--accent);font-size:11px}
+
+  @media (max-width:560px){
+    .plate{top:14px;left:14px;padding:9px 13px;gap:9px}
+    .plate .name{font-size:16px}
+    .plate .where{display:none}
+    .compass{left:14px;bottom:78px;font-size:10px}
+    .erabar{bottom:20px;left:14px;right:14px;transform:none;max-width:none;
+      justify-content:space-between}
+    .erabar button{padding:9px 10px;font-size:9.5px;letter-spacing:1.2px}
+    .erabar .pl{display:none}
+    .hint{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition-duration:.12s !important}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+
+<div class="chrome">
+  <div class="plate">
+    <span class="dot"></span>
+    <span class="name" id="pName">—</span>
+    <span class="year" id="pYear"></span>
+    <span class="where" id="pWhere"></span>
+  </div>
+
+  <div class="compass">
+    <b id="cCard">N</b><span class="deg" id="cDeg">000°</span>
+  </div>
+
+  <nav class="erabar" id="erabar" aria-label="Travel to another era"></nav>
+  <div class="hint">Drag to look around · Scroll to zoom</div>
+</div>
+
+<div class="loader" id="loader">
+  <div class="t">Timeport</div>
+  <div class="s" id="lMsg">Developing plates</div>
+  <div class="bar"><i id="lBar"></i></div>
+</div>
+
+<div class="err" id="err">
+  <div>
+    <p>This needs the panorama files alongside it.</p>
+    <p><code id="errMsg"></code></p>
+    <p style="color:rgba(237,234,228,.5)">Run <code>python generate_pano.py --era all</code> first.</p>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * Eras. Adding a fourth is one entry here and nothing else.
+ * `medium` names the era's actual recording technology; the chrome and
+ * the travel transition adopt it, because 1750 had no photographs and
+ * pretending otherwise is the one lie this thing shouldn't tell.
+ * ------------------------------------------------------------------ */
+const ERAS = [
+  { id:'manchester',   name:'Manchester', year:1750, place:'Market Place',
+    src:'assets/manchester-1750.jpg',   accent:'#E8E0CC', medium:0, heading:42  },
+  { id:'times-square', name:'Times Square', year:1910, place:'Broadway at 7th',
+    src:'assets/times-square-1910.jpg', accent:'#FFF6E2', medium:1, heading:198 },
+  { id:'alexandria',   name:'Alexandria', year:1970, place:'The Corniche',
+    src:'assets/alexandria-1970.jpg',   accent:'#E8A33D', medium:2, heading:310 },
+];
+
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cv = document.getElementById('gl');
+const gl = cv.getContext('webgl2', {antialias:false, alpha:false});
+if(!gl){ showErr('This browser has no WebGL2.'); throw new Error('no webgl2'); }
+
+function showErr(m){
+  document.getElementById('errMsg').textContent = m;
+  document.getElementById('err').style.display = 'grid';
+  document.getElementById('loader').classList.add('gone');
+}
+
+/* ---------------- shaders ---------------- */
+const VS = `#version 300 es
+in vec2 aPos; out vec2 vPos;
+void main(){ vPos = aPos; gl_Position = vec4(aPos,0.,1.); }`;
+
+const FS = `#version 300 es
+precision highp float;
+in vec2 vPos; out vec4 frag;
+uniform sampler2D uA, uB;
+uniform float uMix, uYaw, uPitch, uFov, uAspect, uTime, uGrain;
+uniform int uMedA, uMedB;
+const float PI = 3.14159265359;
+
+vec3 ray(){
+  float t = tan(uFov * .5);
+  vec3 d = normalize(vec3(vPos.x * uAspect * t, vPos.y * t, -1.));
+  float cp = cos(uPitch), sp = sin(uPitch);
+  d = vec3(d.x, d.y*cp - d.z*sp, d.y*sp + d.z*cp);
+  float cy = cos(uYaw), sy = sin(uYaw);
+  return vec3(d.x*cy + d.z*sy, d.y, -d.x*sy + d.z*cy);
+}
+vec2 uv(vec3 d){
+  return vec2(atan(d.z, d.x)/(2.*PI) + .5, acos(clamp(d.y,-1.,1.))/PI);
+}
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+
+/* Each medium fails differently. Engraving breaks into hatching, silver-gelatin
+   blooms and loses the shadows, Kodachrome grains up and shifts warm.          */
+vec3 medium(vec3 c, int m, float amt){
+  if(amt <= .001) return c;
+  if(m == 0){
+    float l = dot(c, vec3(.299,.587,.114));
+    float h = sin((vPos.x + vPos.y) * 420.) * .5 + .5;
+    vec3 eng = mix(vec3(.09,.085,.075), vec3(.93,.90,.82), step(h, l));
+    return mix(c, eng, amt);
+  }
+  if(m == 1){
+    float l = dot(c, vec3(.299,.587,.114));
+    vec3 sil = vec3(pow(l, .78)) * vec3(1.02,1.0,.95);
+    return mix(c, sil + vec3(pow(l, 5.)) * .6 * amt, amt);
+  }
+  float g = hash(gl_FragCoord.xy + uTime) - .5;
+  vec3 kod = c * vec3(1.07,1.0,.93) + g * .12;
+  return mix(c, kod, amt);
+}
+
+void main(){
+  vec2 t = uv(ray());
+  vec3 a = texture(uA, t).rgb;
+  vec3 b = texture(uB, t).rgb;
+
+  /* Dissolve weighted by coarse noise, so travel reads as a plate developing
+     rather than a crossfade. Each pixel flips when the advancing threshold passes
+     its own noise value. Scaling by (1+feather) is what guarantees uMix=1 lands
+     every pixel at fully-arrived; without it the blend caps mid-dissolve and both
+     eras stay superimposed forever. */
+  const float feather = .3;
+  float n = hash(floor(gl_FragCoord.xy / 3.));
+  float m = smoothstep(n, n + feather, uMix * (1. + feather));
+  float burn = 1. - abs(uMix * 2. - 1.);          /* peaks mid-transition */
+
+  a = medium(a, uMedA, burn);
+  b = medium(b, uMedB, burn);
+  vec3 c = mix(a, b, m);
+
+  c += (hash(gl_FragCoord.xy + uTime) - .5) * uGrain;      /* unifying grain */
+  float v = length(vPos * vec2(.62, .58));
+  c *= 1. - v * v * .22;                                    /* vignette      */
+  frag = vec4(c, 1.);
+}`;
+
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+gl.bindAttribLocation(prog, 0, 'aPos');
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+const U = n => gl.getUniformLocation(prog, n);
+const uni = {A:U('uA'), B:U('uB'), mix:U('uMix'), yaw:U('uYaw'), pitch:U('uPitch'),
+  fov:U('uFov'), aspect:U('uAspect'), time:U('uTime'), grain:U('uGrain'),
+  medA:U('uMedA'), medB:U('uMedB')};
+gl.uniform1i(uni.A, 0); gl.uniform1i(uni.B, 1);
+
+/* ---------------- textures ---------------- */
+function makeTex(img){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
+  /* REPEAT on S is what makes the horizontal wrap free. WebGL2 allows it on
+     non-power-of-two textures, which WebGL1 would not. No mipmaps: they would
+     reintroduce a seam through derivative discontinuity at the wrap.          */
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  return t;
+}
+
+/* ---------------- camera ---------------- */
+const cam = {yaw:0, pitch:0, fov:1.15, vy:0, vp:0};
+const FOV_MIN = 0.61, FOV_MAX = 1.75;             /* ~35deg .. ~100deg */
+let cur = 0, prev = 0, mixT = 1, transStart = 0, transDur = REDUCED ? 200 : 700;
+
+function setEra(i, instant){
+  if(i === cur && !instant) return;
+  prev = cur; cur = i;
+  const e = ERAS[i];
+  document.documentElement.style.setProperty('--accent', e.accent);
+  document.getElementById('pName').textContent  = e.name;
+  document.getElementById('pYear').textContent  = e.year;
+  document.getElementById('pWhere').textContent = e.place;
+  [...bar.children].forEach((b, n) => b.setAttribute('aria-current', n === i ? 'true' : 'false'));
+  cam.yaw = -e.heading * Math.PI / 180;           /* start with the seam behind you */
+  cam.vy = cam.vp = 0;
+  if(instant){ mixT = 1; }
+  else { mixT = 0; transStart = performance.now(); }
+}
+
+/* ---------------- era bar ---------------- */
+const bar = document.getElementById('erabar');
+ERAS.forEach((e, i) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.innerHTML = `<span class="yr">${e.year}</span><span class="pl">${e.name}</span>`;
+  b.setAttribute('aria-current', 'false');
+  b.addEventListener('click', () => setEra(i));
+  b.addEventListener('keydown', ev => {
+    const d = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+    if(!d) return;
+    ev.preventDefault();
+    const n = (i + d + ERAS.length) % ERAS.length;
+    bar.children[n].focus(); setEra(n);
+  });
+  bar.appendChild(b);
+});
+
+/* ---------------- input ---------------- */
+let drag = null;
+cv.addEventListener('pointerdown', e => {
+  drag = {x:e.clientX, y:e.clientY};
+  cv.setPointerCapture(e.pointerId); cv.classList.add('dragging');
+});
+cv.addEventListener('pointermove', e => {
+  if(!drag) return;
+  const k = cam.fov / cv.clientHeight * 1.35;
+  cam.vy = -(e.clientX - drag.x) * k;
+  cam.vp = -(e.clientY - drag.y) * k;
+  cam.yaw   += cam.vy;
+  cam.pitch += cam.vp;
+  clampPitch();
+  drag = {x:e.clientX, y:e.clientY};
+});
+const endDrag = e => { drag = null; cv.classList.remove('dragging'); };
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  cam.fov = Math.min(FOV_MAX, Math.max(FOV_MIN, cam.fov * (1 + Math.sign(e.deltaY) * .08)));
+}, {passive:false});
+addEventListener('keydown', e => {
+  if(e.key === 'ArrowLeft'  && e.target === document.body) cam.yaw -= .06;
+  if(e.key === 'ArrowRight' && e.target === document.body) cam.yaw += .06;
+});
+function clampPitch(){
+  const lim = 85 * Math.PI / 180;                 /* stay off the poles */
+  cam.pitch = Math.max(-lim, Math.min(lim, cam.pitch));
+}
+
+/* ---------------- resize ---------------- */
+function resize(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; gl.viewport(0,0,w,h); }
+}
+addEventListener('resize', resize);
+
+/* ---------------- compass ---------------- */
+const CARD = ['N','NE','E','SE','S','SW','W','NW'];
+function updateCompass(){
+  let deg = (-cam.yaw * 180 / Math.PI) % 360;
+  if(deg < 0) deg += 360;
+  document.getElementById('cDeg').textContent = String(Math.round(deg)).padStart(3,'0') + '°';
+  document.getElementById('cCard').textContent = CARD[Math.round(deg / 45) % 8];
+}
+
+/* ---------------- loop ---------------- */
+const GRAIN = [0.030, 0.024, 0.042];              /* per medium */
+let textures = [];
+function frame(now){
+  resize();
+  if(!drag){                                       /* inertia */
+    cam.yaw += cam.vy; cam.pitch += cam.vp; clampPitch();
+    cam.vy *= 0.93; cam.vp *= 0.93;
+    if(Math.abs(cam.vy) < 1e-5) cam.vy = 0;
+    if(Math.abs(cam.vp) < 1e-5) cam.vp = 0;
+  }
+  if(mixT < 1) mixT = Math.min(1, (now - transStart) / transDur);
+
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, textures[prev]);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, textures[cur]);
+  gl.uniform1f(uni.mix, mixT);
+  gl.uniform1f(uni.yaw, cam.yaw);
+  gl.uniform1f(uni.pitch, cam.pitch);
+  gl.uniform1f(uni.fov, cam.fov);
+  gl.uniform1f(uni.aspect, cv.width / cv.height);
+  gl.uniform1f(uni.time, now * 0.001);
+  gl.uniform1f(uni.grain, GRAIN[ERAS[mixT < .5 ? prev : cur].medium]);
+  gl.uniform1i(uni.medA, ERAS[prev].medium);
+  gl.uniform1i(uni.medB, ERAS[cur].medium);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  updateCompass();
+  requestAnimationFrame(frame);
+}
+
+/* ---------------- boot ---------------- */
+const loader = document.getElementById('loader');
+const lBar = document.getElementById('lBar'), lMsg = document.getElementById('lMsg');
+let done = 0;
+Promise.all(ERAS.map(e => new Promise((res, rej) => {
+  const img = new Image();
+  img.onload = () => { done++; lBar.style.width = (done / ERAS.length * 100) + '%'; res(img); };
+  img.onerror = () => rej(new Error(e.src));
+  img.src = e.src;
+}))).then(imgs => {
+  textures = imgs.map(makeTex);
+  lMsg.textContent = 'Ready';
+  setEra(0, true);
+  requestAnimationFrame(frame);
+  setTimeout(() => loader.classList.add('gone'), 260);
+}).catch(err => showErr('Could not load ' + err.message));
+</script>
+</body>
+</html>

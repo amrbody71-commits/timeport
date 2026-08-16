@@ -1,0 +1,12 @@
+# Pipeline intermediates: raw generations, deseam drafts, upscale outputs.
+# ~195 MB of it, and none of it is the deliverable.
+work/
+
+# Credentials
+.env*
+.fal/
+
+# Local scratch
+__pycache__/
+*.pyc
+.DS_Store
